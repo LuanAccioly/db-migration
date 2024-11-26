@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+    container_name: serviceEL
+    environment:
+      - SQLSERVER_HOST=RECPRODBANCO
+      - SQLSERVER_DATABASE=DW
+      - SQLSERVER_USER=airflow
+      - SQLSERVER_PASSWORD=$#LT9PKa$cb3Q@Tq
+      - POSTGRESQL_HOST=DD_DATABASE
+      - POSTGRESQL_DATABASE=DW
+      - POSTGRESQL_USER=admin
+      - POSTGRESQL_PASSWORD=1234
+    depends_on:
+      - sqlserver
+      - postgres
+    command: ["python", "sql_to_pg/main.py"]
+
