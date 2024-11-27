@@ -21,11 +21,15 @@ def main():
         compare_columns_between_databases(
             sqlserver_conn=sqlserver_connection,
             postgres_conn=postgres_connection,
-            table_name="tgford",
+            table_name="tgfcot",
         )
 
         migrate_data(
-            sqlserver_connection, postgres_connection_url, "tgford", "20241101"
+            sqlserver_connection,
+            postgres_connection_url,
+            "tgfcot",
+            "20241001",
+            "dtalter",
         )
 
     except Exception as e:

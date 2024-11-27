@@ -22,6 +22,10 @@ def compare_columns_between_databases(sqlserver_conn, postgres_conn, table_name)
         sqlserver_columns = sqlserver_check_table_columns(sqlserver_conn, table_name)
         postgres_columns = postgres_check_table_columns(postgres_conn, table_name)
 
+        # Converter todas as colunas para minúsculas para comparação case-insensitive
+        sqlserver_columns = [col.lower() for col in sqlserver_columns]
+        postgres_columns = [col.lower() for col in postgres_columns]
+
         # Verificar se as colunas estão na mesma ordem
         if sqlserver_columns == postgres_columns:
             logger.info(
@@ -40,9 +44,10 @@ def compare_columns_between_databases(sqlserver_conn, postgres_conn, table_name)
         raise
 
 
-def migrate_data(sql_conn, postgres_conn, table_name, date_filter):
-    query = f"SELECT * FROM sankhya.{table_name} WHERE DTALTER >= '{date_filter}'"
+def migrate_data(sql_conn, postgres_conn, table_name, date_filter, date_column_name):
+    query = f"SELECT * FROM sankhya.{table_name} WHERE {date_column_name} >= '{date_filter}'"
     df = pd.read_sql(query, sql_conn)
+    df.columns = df.columns.str.lower()
     logger.info(f"Foram encontrados: {len(df)} registros")
 
     try:
