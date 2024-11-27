@@ -1,3 +1,4 @@
+import gc
 import logging
 import pandas as pd
 from db.postgres.utils import postgres_check_table_columns
@@ -64,3 +65,6 @@ def migrate_data(sql_conn, postgres_conn, table_name, date_filter, date_column_n
         )
     except Exception as e:
         logger.error(f"Erro ao inserir dados no PostgreSQL: {e}")
+    finally:
+        del df
+        gc.collect()
