@@ -24,7 +24,7 @@ def get_postgres_connection():
         )
         logger.info("Postgres conectado com sucesso!")
 
-        return conn.cursor()
+        return conn
 
     except psycopg2.Error as e:
         logger.error(f"Erro ao conectar ao Postgres: {e}")

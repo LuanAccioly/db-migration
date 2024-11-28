@@ -1,8 +1,12 @@
+import time
 from datetime import datetime, timedelta
 import json
 import gc
 import logging
 import pandas as pd
+from sqlalchemy import Table, MetaData, create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete
 from db.postgres.utils import postgres_check_table_columns
 from db.postgres.config import get_postgres_connection, get_postgres_engine_string_url
 from db.sqlserver.utils import sqlserver_check_table_columns
@@ -23,9 +27,11 @@ def compare_columns_between_databases(sqlserver_conn, postgres_conn, table_name)
     :return: Resultado da comparação.
     """
     try:
+        postgres_cursor = postgres_conn.cursor()
+
         # Obter as colunas da tabela no SQL Server e PostgreSQL
         sqlserver_columns = sqlserver_check_table_columns(sqlserver_conn, table_name)
-        postgres_columns = postgres_check_table_columns(postgres_conn, table_name)
+        postgres_columns = postgres_check_table_columns(postgres_cursor, table_name)
 
         # Converter todas as colunas para minúsculas para comparação case-insensitive
         sqlserver_columns = [col.lower() for col in sqlserver_columns]
@@ -74,47 +80,74 @@ def migrate_data(sql_conn, postgres_conn, table_name, date_filter, date_column_n
         gc.collect()
 
 
-def update_recent_data(sql_conn, postgres_conn, table_name, date_column_name, days):
+def update_recent_data(
+    sql_conn, postgres_conn, postgres_conn_url, table_name, date_column_name, days
+):
     filter_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+    logger.info(
+        f"Iniciando sincronização dos dados para a tabela '{table_name}' com base na data {filter_date}."
+    )
+
     try:
+        # Conectar ao banco PostgreSQL e preparar para operações
+        postgres_cursor = postgres_conn.cursor()
+        logger.info(
+            f"Conexão estabelecida com o banco PostgreSQL para a tabela '{table_name}'."
+        )
+
+        # Carregar dados do SQL Server
         query = f"SELECT * FROM sankhya.{table_name} WHERE {date_column_name} >= '{filter_date}'"
+        logger.info(f"Executando consulta no SQL Server: {query}")
+
         df = pd.read_sql(query, sql_conn)
         df.columns = df.columns.str.lower()
         logger.info(
             f"Encontrados {len(df)} registros no SQL Server para sincronização."
         )
 
-        # Deletar os dados existentes no PostgreSQL para o mesmo intervalo de tempo
+        # Deletar registros antigos no PostgreSQL
         delete_query = f"""
         DELETE FROM raw_sankhya.{table_name}
         WHERE {date_column_name} >= '{filter_date}';
         """
-        with postgres_conn.connect() as conn:
-            conn.execute(delete_query)
+        logger.info(f"Executando exclusão no PostgreSQL com a consulta: {delete_query}")
+        postgres_cursor.execute(delete_query)
+        postgres_conn.commit()
         logger.info(
-            f"Registros no PostgreSQL para '{table_name}' deletados com sucesso a partir de {filter_date}."
+            f"Dados deletados com sucesso no PostgreSQL para a tabela 'raw_sankhya.{table_name}' a partir de {filter_date}."
         )
 
-        # Inserir os dados do SQL Server no PostgreSQL
         try:
+            logger.info(f"Iniciando inserção dos dados no PostgreSQL.")
             df.to_sql(
                 table_name,
-                postgres_conn,
+                postgres_conn_url,
                 schema="raw_sankhya",
                 if_exists="append",
                 index=False,
             )
             logger.info(
-                f"Dados sincronizados com sucesso na tabela 'raw_sankhya.{table_name}'."
+                f"Dados sincronizados com sucesso na tabela 'raw_sankhya.{table_name}'. Total de {len(df)} registros inseridos."
             )
-        except Exception as e:
-            logger.error(f"Erro ao inserir dados no PostgreSQL: {e}")
+
+        except Exception as insert_error:
+            logger.error(
+                f"Erro ao inserir dados no PostgreSQL para a tabela '{table_name}': {insert_error}"
+            )
+            raise
 
     except Exception as e:
-        logger.error(f"Erro ao sincronizar a tabela '{table_name}': {e}")
+        logger.error(
+            f"Erro durante o processo de sincronização para a tabela '{table_name}': {e}"
+        )
     finally:
-        del df
-        gc.collect()
+        # Limpeza de memória
+        if sql_conn:
+            sql_conn.close()
+        if postgres_conn:
+            postgres_conn.close()
+        if postgres_conn_url:
+            postgres_conn_url.close()
 
 
 def migrate_multiple_tables():
@@ -156,6 +189,7 @@ def migrate_multiple_tables():
         logger.error(f"Erro durante o processo de migração: {e}")
     finally:
         sqlserver_connection.close()
+        postgres_connection_url.close()
         postgres_connection.close()
 
 
@@ -173,7 +207,8 @@ def check_and_update_recent_date(table_name, days, date_column):
         ):
             update_recent_data(
                 sql_conn=sqlserver_connection,
-                postgres_conn=postgres_connection_url,
+                postgres_conn_url=postgres_connection_url,
+                postgres_conn=postgres_connection,
                 table_name=table_name,
                 date_column_name=date_column,
                 days=days,
@@ -186,5 +221,7 @@ def check_and_update_recent_date(table_name, days, date_column):
     except Exception as e:
         logger.error(f"Erro durante o processo de migração: {e}")
     finally:
+
         sqlserver_connection.close()
         postgres_connection.close()
+        postgres_connection_url.close()
