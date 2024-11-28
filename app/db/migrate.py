@@ -55,33 +55,35 @@ def compare_columns_between_databases(sqlserver_conn, postgres_conn, table_name)
         raise
 
 
-def migrate_data(sql_conn, postgres_conn, table_name, date_filter, date_column_name):
+def migrate_data(sql_conn, postgres_engine, table_name, date_filter, date_column_name):
     query = f"SELECT * FROM sankhya.{table_name} WHERE {date_column_name} >= '{date_filter}'"
     df = pd.read_sql(query, sql_conn)
     df.columns = df.columns.str.lower()
     logger.info(f"Foram encontrados: {len(df)} registros")
 
-    try:
-
-        df.to_sql(
-            table_name,
-            postgres_conn,
-            schema="raw_sankhya",
-            if_exists="append",
-            index=False,
-        )
-        logger.info(
-            f"Dados da tabela '{table_name}' inseridos com sucesso na tabela 'raw_sankhya.{table_name}'."
-        )
-    except Exception as e:
-        logger.error(f"Erro ao inserir dados no PostgreSQL: {e}")
-    finally:
-        del df
-        gc.collect()
+    with postgres_engine.connect() as postgres_conn:
+        transaction = postgres_conn.begin()
+        try:
+            df.to_sql(
+                table_name,
+                postgres_conn,
+                schema="raw_sankhya",
+                if_exists="append",
+                index=False,
+            )
+            transaction.commit()
+            logger.info(
+                f"Dados da tabela '{table_name}' inseridos com sucesso na tabela 'raw_sankhya.{table_name}'."
+            )
+        except Exception as e:
+            logger.error(f"Erro ao inserir dados no PostgreSQL: {e}")
+        finally:
+            del df
+            gc.collect()
 
 
 def update_recent_data(
-    sql_conn, postgres_conn, postgres_conn_url, table_name, date_column_name, days
+    sql_conn, postgres_conn, postgres_engine_url, table_name, date_column_name, days
 ):
     filter_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
     logger.info(
@@ -117,24 +119,28 @@ def update_recent_data(
             f"Dados deletados com sucesso no PostgreSQL para a tabela 'raw_sankhya.{table_name}' a partir de {filter_date}."
         )
 
-        try:
-            logger.info(f"Iniciando inserção dos dados no PostgreSQL.")
-            df.to_sql(
-                table_name,
-                postgres_conn_url,
-                schema="raw_sankhya",
-                if_exists="append",
-                index=False,
-            )
-            logger.info(
-                f"Dados sincronizados com sucesso na tabela 'raw_sankhya.{table_name}'. Total de {len(df)} registros inseridos."
-            )
+        with postgres_engine_url.connect() as postgres_conn_url:
+            transaction = postgres_conn_url.begin()
+            try:
+                logger.info(f"Iniciando inserção dos dados no PostgreSQL.")
+                df.to_sql(
+                    table_name,
+                    postgres_conn_url,
+                    schema="raw_sankhya",
+                    if_exists="append",
+                    index=False,
+                )
+                transaction.commit()
+                logger.info(
+                    f"Dados sincronizados com sucesso na tabela 'raw_sankhya.{table_name}'. Total de {len(df)} registros inseridos."
+                )
 
-        except Exception as insert_error:
-            logger.error(
-                f"Erro ao inserir dados no PostgreSQL para a tabela '{table_name}': {insert_error}"
-            )
-            raise
+            except Exception as insert_error:
+                transaction.rollback()
+                logger.error(
+                    f"Erro ao inserir dados no PostgreSQL para a tabela '{table_name}': {insert_error}"
+                )
+                raise
 
     except Exception as e:
         logger.error(
@@ -157,7 +163,9 @@ def migrate_multiple_tables():
         # Configurar conexões
         sqlserver_connection = get_connection()
         postgres_connection = get_postgres_connection()
-        postgres_connection_url = get_postgres_engine_string_url()
+        postgres_engine_url = get_postgres_engine_string_url()
+
+        # ADICIONAR WITH AQUI
 
         # Iterar sobre a lista de tabelas e processar cada uma
         for table in tables_to_migrate:
@@ -175,7 +183,7 @@ def migrate_multiple_tables():
             ):
                 migrate_data(
                     sqlserver_connection,
-                    postgres_connection_url,
+                    postgres_engine_url,
                     table_name,
                     date_filter,
                     date_column,
@@ -189,7 +197,7 @@ def migrate_multiple_tables():
         logger.error(f"Erro durante o processo de migração: {e}")
     finally:
         sqlserver_connection.close()
-        postgres_connection_url.close()
+        # postgres_engine_url.close()
         postgres_connection.close()
 
 
@@ -198,7 +206,7 @@ def check_and_update_recent_date(table_name, days, date_column):
 
         sqlserver_connection = get_connection()
         postgres_connection = get_postgres_connection()
-        postgres_connection_url = get_postgres_engine_string_url()
+        postgres_engine_url = get_postgres_engine_string_url()
 
         if compare_columns_between_databases(
             sqlserver_conn=sqlserver_connection,
@@ -207,7 +215,7 @@ def check_and_update_recent_date(table_name, days, date_column):
         ):
             update_recent_data(
                 sql_conn=sqlserver_connection,
-                postgres_conn_url=postgres_connection_url,
+                postgres_engine_url=postgres_engine_url,
                 postgres_conn=postgres_connection,
                 table_name=table_name,
                 date_column_name=date_column,
@@ -224,4 +232,4 @@ def check_and_update_recent_date(table_name, days, date_column):
 
         sqlserver_connection.close()
         postgres_connection.close()
-        postgres_connection_url.close()
+        # postgres_engine_url.close()

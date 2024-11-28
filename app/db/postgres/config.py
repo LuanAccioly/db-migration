@@ -37,9 +37,7 @@ def get_postgres_engine_string_url():
         engine = create_engine(
             f"postgresql+psycopg2://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DATABASE')}"
         )
-        connection = engine.connect()
-        logger.info("Postgres conectado com sucesso via SQLAlchemy!")
-        return connection
+        return engine
     except Exception as e:
         logger.error(f"Erro ao conectar ao Postgres: {e}")
         raise
