@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import gc
 import logging
 import pandas as pd
@@ -68,3 +69,7 @@ def migrate_data(sql_conn, postgres_conn, table_name, date_filter, date_column_n
     finally:
         del df
         gc.collect()
+
+
+def update_recent_data(sql_conn, postgres_conn, table_name, date_column_name, days):
+    filter_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
