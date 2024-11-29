@@ -228,6 +228,7 @@ def check_and_update_recent_date(table_name, days, date_column):
 
     except Exception as e:
         logger.error(f"Erro durante o processo de migração: {e}")
+        raise
     # finally:
 
     # sqlserver_connection.close()
