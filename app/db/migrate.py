@@ -228,8 +228,8 @@ def check_and_update_recent_date(table_name, days, date_column):
 
     except Exception as e:
         logger.error(f"Erro durante o processo de migração: {e}")
-    finally:
+    # finally:
 
-        sqlserver_connection.close()
-        postgres_connection.close()
-        # postgres_engine_url.close()
+    # sqlserver_connection.close()
+    # postgres_connection.close()
+    # postgres_engine_url.close()
