@@ -42,5 +42,14 @@ ENV PYTHONUNBUFFERED=1
 # A aplicação não expõe portas porque não serve conteúdo via HTTP
 # Mas é importante garantir que ela execute corretamente quando for chamada
 
+EXPOSE 2712
+
 # O ponto de entrada do container para rodar a aplicação
-CMD ["python", "app/main.py"]
+# CMD ["python", "app/main.py"]
+
+# Copiar o script de entrada
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Definir o script de entrada
+ENTRYPOINT ["/entrypoint.sh"]

@@ -13,14 +13,15 @@ logger = logging.getLogger(__name__)
 def check_table_exists_postgres(table_name):
     try:
         # Obtém a conexão com o PostgreSQL
-        conn = get_postgres_engine_string_url()
+        engine = get_postgres_engine_string_url()
+        conn = engine.connect()
 
         # Consulta SQL para verificar se a tabela existe
         query = text(
             """
         SELECT 1
         FROM information_schema.tables
-        WHERE table_schema = 'raw_sankhya'  -- ou o schema desejado
+        WHERE table_schema = 'sankhya'  -- ou o schema desejado
         AND table_name = :table_name
         """
         )
@@ -44,7 +45,7 @@ def postgres_check_table_columns(postgres_conn, table_name):
         INFORMATION_SCHEMA.COLUMNS 
     WHERE 
         TABLE_NAME = '{table_name}'
-        AND TABLE_SCHEMA = 'raw_sankhya';
+        AND TABLE_SCHEMA = 'sankhya';
     """
 
     try:
@@ -56,3 +57,11 @@ def postgres_check_table_columns(postgres_conn, table_name):
     except Exception as e:
         logger.error(f"Erro ao verificar colunas da tabela '{table_name}': {e}")
         raise
+
+
+def main():
+    check_table_exists_postgres("tcbint")
+
+
+if __name__ == "__main__":
+    main()

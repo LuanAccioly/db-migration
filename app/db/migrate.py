@@ -67,13 +67,13 @@ def migrate_data(sql_conn, postgres_engine, table_name, date_filter, date_column
             df.to_sql(
                 table_name,
                 postgres_conn,
-                schema="raw_sankhya",
+                schema="sankhya",
                 if_exists="append",
                 index=False,
             )
             transaction.commit()
             logger.info(
-                f"Dados da tabela '{table_name}' inseridos com sucesso na tabela 'raw_sankhya.{table_name}'."
+                f"Dados da tabela '{table_name}' inseridos com sucesso na tabela 'sankhya.{table_name}'."
             )
         except Exception as e:
             logger.error(f"Erro ao inserir dados no PostgreSQL: {e}")
@@ -109,14 +109,14 @@ def update_recent_data(
 
         # Deletar registros antigos no PostgreSQL
         delete_query = f"""
-        DELETE FROM raw_sankhya.{table_name}
+        DELETE FROM sankhya.{table_name}
         WHERE {date_column_name} >= '{filter_date}';
         """
         logger.info(f"Executando exclusão no PostgreSQL com a consulta: {delete_query}")
         postgres_cursor.execute(delete_query)
         postgres_conn.commit()
         logger.info(
-            f"Dados deletados com sucesso no PostgreSQL para a tabela 'raw_sankhya.{table_name}' a partir de {filter_date}."
+            f"Dados deletados com sucesso no PostgreSQL para a tabela 'sankhya.{table_name}' a partir de {filter_date}."
         )
 
         with postgres_engine_url.connect() as postgres_conn_url:
@@ -126,13 +126,13 @@ def update_recent_data(
                 df.to_sql(
                     table_name,
                     postgres_conn_url,
-                    schema="raw_sankhya",
+                    schema="sankhya",
                     if_exists="append",
                     index=False,
                 )
                 transaction.commit()
                 logger.info(
-                    f"Dados sincronizados com sucesso na tabela 'raw_sankhya.{table_name}'. Total de {len(df)} registros inseridos."
+                    f"Dados sincronizados com sucesso na tabela 'sankhya.{table_name}'. Total de {len(df)} registros inseridos."
                 )
 
             except Exception as insert_error:
