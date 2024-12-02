@@ -146,6 +146,7 @@ def update_recent_data(
         logger.error(
             f"Erro durante o processo de sincronização para a tabela '{table_name}': {e}"
         )
+        raise
     finally:
         # Limpeza de memória
         if sql_conn:
