@@ -63,24 +63,21 @@ def delete_from_pk(postgres_cursor, table_name, primary_keys, source_values):
     if not primary_keys:
         raise ValueError("É necessário especificar ao menos uma chave primária.")
 
-    # Converte os valores em formato SQL
+    # Converte ["11706590", "11706719"] -> ('11706590', '11706719')
     formatted_values = ", ".join(f"'{v}'" for v in source_values)
 
     # Monta a expressão para a chave primária
-    logger.info(len(primary_keys))
     if len(primary_keys) == 1:
         pk_expression = primary_keys[0]
-        values_expression = f" = {formatted_values[0]}"
     else:
-        pk_expression = f"CONCAT_WS('|', {primary_keys})"
-        values_expression = f"IN (SELECT CONCAT_WS('|', {formatted_values}))"
+        formatted_pks = ", ".join(f"{v}" for v in primary_keys)
+        pk_expression = f"CONCAT_WS('|', {formatted_pks})"
 
     delete_query = f"""
     DELETE FROM sankhya.{table_name}
-    WHERE {pk_expression} {values_expression};
+    WHERE {pk_expression} IN ({formatted_values});
     """
 
-    logger.info(f"Executando exclusão no PostgreSQL com a consulta: {delete_query}")
     postgres_cursor.execute(delete_query)
 
     logger.info(
