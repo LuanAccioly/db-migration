@@ -63,8 +63,8 @@ def sqlserver_check_primary_keys(sqlserver_conn, table_name):
     """
     try:
         columns = [row[0] for row in sqlserver_conn.execute(query).fetchall()]
-        pk_columns = [col.lower() for col in columns]
-        return pk_columns
+        # pk_columns = [col.lower() for col in columns]
+        return columns
     except Exception as e:
         logger.error(f"Erro ao verificar PK's da tabela '{table_name}': {e}")
         raise
