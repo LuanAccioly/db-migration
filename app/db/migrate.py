@@ -95,6 +95,7 @@ def update_recent_data(
     primary_keys,
 ):
     filter_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y%m%d")
     logger.info(
         f"Iniciando sincronização dos dados para a tabela '{table_name}' com base na data {filter_date}."
     )
@@ -107,7 +108,7 @@ def update_recent_data(
         )
 
         # Carregar dados do SQL Server
-        query = f"SELECT * FROM sankhya.{table_name} WHERE {date_column_name} >= '{filter_date}'"
+        query = f"SELECT * FROM sankhya.{table_name} WHERE {date_column_name} BETWEEN '{filter_date}' AND '{tomorrow}'"
         logger.info(f"Executando consulta no SQL Server: {query}")
 
         df = pd.read_sql(query, sql_conn)
