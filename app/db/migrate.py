@@ -7,9 +7,12 @@ import pandas as pd
 from sqlalchemy import Table, MetaData, create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import delete
-from db.postgres.utils import postgres_check_table_columns
+from db.postgres.utils import postgres_check_table_columns, delete_from_pk
 from db.postgres.config import get_postgres_connection, get_postgres_engine_string_url
-from db.sqlserver.utils import sqlserver_check_table_columns
+from db.sqlserver.utils import (
+    sqlserver_check_table_columns,
+    sqlserver_check_primary_keys,
+)
 from db.sqlserver.config import get_connection, get_connection_string_url
 from logs.log_config import setup_logging
 
@@ -83,7 +86,13 @@ def migrate_data(sql_conn, postgres_engine, table_name, date_filter, date_column
 
 
 def update_recent_data(
-    sql_conn, postgres_conn, postgres_engine_url, table_name, date_column_name, days
+    sql_conn,
+    postgres_conn,
+    postgres_engine_url,
+    table_name,
+    date_column_name,
+    days,
+    primary_keys,
 ):
     filter_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
     logger.info(
@@ -102,22 +111,14 @@ def update_recent_data(
         logger.info(f"Executando consulta no SQL Server: {query}")
 
         df = pd.read_sql(query, sql_conn)
+        pks_values = df[primary_keys].astype(str).agg("|".join, axis=1)
         df.columns = df.columns.str.lower()
         logger.info(
             f"Encontrados {len(df)} registros no SQL Server para sincronização."
         )
 
-        # Deletar registros antigos no PostgreSQL
-        delete_query = f"""
-        DELETE FROM sankhya.{table_name}
-        WHERE {date_column_name} >= '{filter_date}';
-        """
-        logger.info(f"Executando exclusão no PostgreSQL com a consulta: {delete_query}")
-        postgres_cursor.execute(delete_query)
+        delete_from_pk(postgres_cursor, table_name, primary_keys, pks_values)
         postgres_conn.commit()
-        logger.info(
-            f"Dados deletados com sucesso no PostgreSQL para a tabela 'sankhya.{table_name}' a partir de {filter_date}."
-        )
 
         with postgres_engine_url.connect() as postgres_conn_url:
             transaction = postgres_conn_url.begin()
@@ -214,6 +215,9 @@ def check_and_update_recent_date(table_name, days, date_column):
             postgres_conn=postgres_connection,
             table_name=table_name,
         ):
+            primary_keys = sqlserver_check_primary_keys(
+                sqlserver_connection, table_name
+            )
             update_recent_data(
                 sql_conn=sqlserver_connection,
                 postgres_engine_url=postgres_engine_url,
@@ -221,6 +225,7 @@ def check_and_update_recent_date(table_name, days, date_column):
                 table_name=table_name,
                 date_column_name=date_column,
                 days=days,
+                primary_keys=primary_keys,
             )
         else:
             logger.warning(
