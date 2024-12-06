@@ -45,11 +45,11 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 2712
 
 # O ponto de entrada do container para rodar a aplicação
-# CMD ["python", "app/main.py"]
+CMD ["python", "app/api.py"]
 
 # Copiar o script de entrada
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# COPY entrypoint.sh /entrypoint.sh
+# RUN chmod +x /entrypoint.sh
 
 # Definir o script de entrada
-ENTRYPOINT ["/entrypoint.sh"]
+# ENTRYPOINT ["/entrypoint.sh"]
