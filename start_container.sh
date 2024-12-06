@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Executa o Docker container
-docker run -d --name natto-byte-api -p "2712:2712" natto-byte api
+docker run -d --name natto-byte-api -p "2712:2712" natto-byte
 
 # Verifica se o container foi iniciado com sucesso
 if [ $? -eq 0 ]; then
