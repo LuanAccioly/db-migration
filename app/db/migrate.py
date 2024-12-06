@@ -158,6 +158,87 @@ def update_recent_data(
             postgres_conn_url.close()
 
 
+def update_full_table(
+    sql_conn,
+    postgres_conn,
+    postgres_engine_url,
+    table_name,
+):
+    """
+    Realiza a carga completa de dados de uma tabela do SQL Server para o PostgreSQL.
+
+    :param sql_conn: Conexão com o banco SQL Server.
+    :param postgres_conn: Conexão com o banco PostgreSQL.
+    :param postgres_engine_url: URL do engine SQLAlchemy para o PostgreSQL.
+    :param table_name: Nome da tabela a ser sincronizada.
+    """
+    logger.info(f"Iniciando carga completa dos dados para a tabela '{table_name}'.")
+
+    try:
+        # Conectar ao banco PostgreSQL e preparar para operações
+        postgres_cursor = postgres_conn.cursor()
+        logger.info(
+            f"Conexão estabelecida com o banco PostgreSQL para a tabela '{table_name}'."
+        )
+
+        # Carregar dados do SQL Server
+        query = f"SELECT * FROM sankhya.{table_name}"
+        logger.info(f"Executando consulta no SQL Server: {query}")
+
+        df = pd.read_sql(query, sql_conn)
+        df.columns = df.columns.str.lower()
+        logger.info(
+            f"Encontrados {len(df)} registros no SQL Server para sincronização."
+        )
+
+        # Remover todos os registros existentes na tabela PostgreSQL
+        delete_query = f"DELETE FROM sankhya.{table_name}"
+        postgres_cursor.execute(delete_query)
+        postgres_conn.commit()
+        logger.info(
+            f"Todos os registros da tabela 'sankhya.{table_name}' foram removidos no PostgreSQL."
+        )
+
+        # Inserir os dados no PostgreSQL
+        with postgres_engine_url.connect() as postgres_conn_url:
+            transaction = postgres_conn_url.begin()
+            try:
+                logger.info(f"Iniciando inserção dos dados no PostgreSQL.")
+                df.to_sql(
+                    table_name,
+                    postgres_conn_url,
+                    schema="sankhya",
+                    if_exists="append",
+                    index=False,
+                )
+                transaction.commit()
+                logger.info(
+                    f"Dados sincronizados com sucesso na tabela 'sankhya.{table_name}'. Total de {len(df)} registros inseridos."
+                )
+
+            except Exception as insert_error:
+                transaction.rollback()
+                logger.error(
+                    f"Erro ao inserir dados no PostgreSQL para a tabela '{table_name}': {insert_error}"
+                )
+                raise
+
+    except Exception as e:
+        logger.error(
+            f"Erro durante o processo de carga completa para a tabela '{table_name}': {e}"
+        )
+        raise
+
+    finally:
+        # Limpeza de memória
+        if sql_conn:
+            sql_conn.close()
+        if postgres_conn:
+            postgres_conn.close()
+        if postgres_conn_url:
+            postgres_conn_url.close()
+
+
 def migrate_multiple_tables():
     try:
         with open("app/databases.json", "r") as file:
@@ -240,3 +321,33 @@ def check_and_update_recent_date(table_name, days, date_column):
     # sqlserver_connection.close()
     # postgres_connection.close()
     # postgres_engine_url.close()
+
+
+def full_load(table_name):
+    try:
+        sqlserver_connection = get_connection()
+        postgres_connection = get_postgres_connection()
+        postgres_engine_url = get_postgres_engine_string_url()
+
+        if compare_columns_between_databases(
+            sqlserver_conn=sqlserver_connection,
+            postgres_conn=postgres_connection,
+            table_name=table_name,
+        ):
+            primary_keys = sqlserver_check_primary_keys(
+                sqlserver_connection, table_name
+            )
+            update_full_table(
+                sql_conn=sqlserver_connection,
+                postgres_engine_url=postgres_engine_url,
+                postgres_conn=postgres_connection,
+                table_name=table_name,
+            )
+        else:
+            logger.warning(
+                f"Tabela {table_name} não foi migrada devido a diferenças de colunas."
+            )
+
+    except Exception as e:
+        logger.error(f"Erro durante o processo de migração: {e}")
+        raise

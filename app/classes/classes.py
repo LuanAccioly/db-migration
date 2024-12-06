@@ -9,6 +9,10 @@ class MigrationRequest(BaseModel):
     days: int = Field(..., gt=0, description="Quantidade de dias para buscar os dados")
 
 
+class FullLoadMigrationRequest(BaseModel):
+    table_name: str = Field(..., description="Nome da tabela a ser processada")
+
+
 class ColumnsMismatchError(Exception):
     """
     Exceção personalizada para discrepâncias nas colunas de tabelas entre bancos de dados.

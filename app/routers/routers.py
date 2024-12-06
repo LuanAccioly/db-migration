@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from classes.classes import MigrationRequest
+from classes.classes import MigrationRequest, FullLoadMigrationRequest
 from typing import Dict
-from db.migrate import check_and_update_recent_date
+from db.migrate import check_and_update_recent_date, full_load
 import logging
 from logs.log_config import setup_logging
 
@@ -14,6 +14,28 @@ router = APIRouter()
 @router.get("/")
 async def hello():
     return {"message": "My name is Chicken Little"}
+
+
+@router.post("/full_load")
+def full_load_table(request: FullLoadMigrationRequest) -> Dict[str, str]:
+    table_name = request.table_name
+
+    try:
+        full_load(table_name)
+        success_message = f"Carga completa feita com sucesso na tabela '{table_name}'."
+        logging.info(success_message)
+        return {"status": "success", "message": success_message}
+
+    except Exception as e:
+        # Log de erro
+        error_message = f"Falha ao fazer carga completa na tabela '{table_name}'"
+        logging.error(error_message)
+
+        # Lança um erro HTTP com detalhes
+        raise HTTPException(
+            status_code=500,
+            detail={"status": "error", "message": error_message, "error": str(e)},
+        )
 
 
 @router.post("/load_days")
