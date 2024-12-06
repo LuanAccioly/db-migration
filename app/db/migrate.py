@@ -15,6 +15,7 @@ from db.sqlserver.utils import (
 )
 from db.sqlserver.config import get_connection, get_connection_string_url
 from logs.log_config import setup_logging
+from classes.classes import ColumnsMismatchError
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -27,7 +28,8 @@ def compare_columns_between_databases(sqlserver_conn, postgres_conn, table_name)
     :param sqlserver_conn: Conexão SQL Server.
     :param postgres_conn: Conexão PostgreSQL.
     :param table_name: Nome da tabela a ser comparada.
-    :return: Resultado da comparação.
+    :raises ColumnsMismatchError: Quando as colunas da tabela são diferentes entre os bancos de dados.
+    :return: True se as colunas forem iguais e na mesma ordem.
     """
     try:
         postgres_cursor = postgres_conn.cursor()
@@ -47,12 +49,9 @@ def compare_columns_between_databases(sqlserver_conn, postgres_conn, table_name)
             )
             return True
         else:
-            logger.warning(
-                f"As colunas da tabela '{table_name}' são diferentes ou estão em ordens diferentes entre os bancos de dados."
-            )
-            logger.info(f"Colunas no SQL Server: {sqlserver_columns}")
-            logger.info(f"Colunas no PostgreSQL: {postgres_columns}")
-            return False
+            # Lançar exceção personalizada se houver discrepâncias
+            raise ColumnsMismatchError(table_name, sqlserver_columns, postgres_columns)
+
     except Exception as e:
         logger.error(f"Erro ao comparar colunas da tabela '{table_name}': {e}")
         raise
