@@ -59,25 +59,30 @@ def postgres_check_table_columns(postgres_conn, table_name):
         raise
 
 
-def delete_from_pk(postgres_cursor, table_name, primary_keys, source_values):
+def delete_from_pk(
+    postgres_cursor, schema_name, table_name, primary_keys, source_values
+):
     if not primary_keys:
         raise ValueError("É necessário especificar ao menos uma chave primária.")
 
+    # if source_values == "":
+    #     logger.info("Nenhum valor para deletar.")
+    #     return
+
     # Converte ["11706590", "11706719"] -> ('11706590', '11706719')
-    formatted_values = ", ".join(f"'{v}'" for v in source_values)
+    # formatted_values = ", ".join(f"'{v}'" for v in source_values)
 
     # Monta a expressão para a chave primária
-    if len(primary_keys) == 1:
-        pk_expression = primary_keys[0]
-    else:
-        formatted_pks = ", ".join(f"{v}" for v in primary_keys)
-        pk_expression = f"CONCAT_WS('|', {formatted_pks})"
+    # if len(primary_keys) == 1:
+    #     pk_expression = primary_keys[0]
+    # else:
+    #     formatted_pks = ", ".join(f"{v}" for v in primary_keys)
+    #     pk_expression = f"CONCAT_WS('|', {formatted_pks})"
 
     delete_query = f"""
-    DELETE FROM sankhya.{table_name}
-    WHERE {pk_expression} IN ({formatted_values});
+    DELETE FROM {schema_name}.{table_name}
+    WHERE {primary_keys} IN ({source_values});
     """
-
     postgres_cursor.execute(delete_query)
 
     logger.info(

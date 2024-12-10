@@ -1,5 +1,3 @@
 [
-    {"table_name": "tcbint", "date_column": "referencia", "date_filter": "20241101"},
-    {"table_name": "tcblan", "date_column": "referencia", "date_filter": "20241101"},
-    {"table_name": "tcbsal", "date_column": "referencia", "date_filter": "20241101"}
+    {"table_name": "tgfcab", "date_column": "dtalter", "date_filter": "20241129"}
 ]
