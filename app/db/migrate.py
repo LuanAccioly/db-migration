@@ -368,6 +368,8 @@ def log_update(
             transaction.rollback()
             logger.error(f"Erro ao inserir os dados: {e}")
             raise
+        finally:
+            postgres_url_conn.close()
 
     return {
         "pks": primary_keys,
