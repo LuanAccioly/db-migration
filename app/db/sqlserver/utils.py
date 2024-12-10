@@ -106,7 +106,7 @@ def update_values_by_pk(
     if not primary_keys:
         raise ValueError("É necessário especificar ao menos uma chave primária.")
 
-    if source_values == []:
+    if len(source_values) <= 0:
         logger.info("Nenhum valor para fazer update de DhIntegração.")
         return
 
@@ -115,10 +115,14 @@ def update_values_by_pk(
 
     # Monta a expressão para a chave primária
     if len(primary_keys) == 1:
+        logger.debug("Montando expressão de chave primaria")
         pk_expression = primary_keys[0]
+        logger.debug("Expressão de chave primaria montada")
     else:
+        logger.debug("Montando expressão de parametros de pks")
         formatted_pks = ", ".join(f"{v}" for v in primary_keys)
         pk_expression = f"CONCAT_WS('|', {formatted_pks})"
+        logger.debug("Expressão de parametros de pks montada")
 
     if operation_type.lower() == "delete":
         update_DhIntegracao_query = f"""
@@ -134,5 +138,6 @@ def update_values_by_pk(
         AND SyncTableId <= {last_SyncTableId};
         """
 
+    logger.debug(update_DhIntegracao_query)
     sqlserver_conn.execute(update_DhIntegracao_query)
     sqlserver_conn.commit()

@@ -66,7 +66,6 @@ def delete_from_pk(
         raise ValueError("É necessário especificar ao menos uma chave primária.")
 
     if source_values == "":
-        logger.info("Nenhum valor para deletar.")
         return
 
     delete_query = f"""

@@ -308,6 +308,7 @@ def log_update(
     query = f"""
     SELECT {', '.join(primary_keys)}, MAX(DhOperacao) AS DhOperacao, SyncTableId
     FROM LogSincronizacaoDW.{log_schema_name}.{table_name}
+    WHERE DhIntegracao IS NULL    
     GROUP BY {', '.join(primary_keys)}, SyncTableId
     """
     pk_values_df = pd.read_sql(query, sqlserver_conn)
@@ -354,6 +355,7 @@ def log_update(
     with postgres_engine.connect() as postgres_url_conn:
         transaction = postgres_url_conn.begin()
         try:
+            logger.info(f"Inserindo {values_to_insert.shape[0]} registros...")
             values_to_insert.columns = values_to_insert.columns.str.lower()
             values_to_insert.to_sql(
                 table_name,
@@ -399,8 +401,8 @@ def log_delete(
 
     if len(primary_keys) == 1:
         logger.info(f"Primary key única: {primary_keys[0]}")
-        primary_key_values = ", ".join(map(str, logs_df[primary_keys[0]].tolist()))
         pk_expression = primary_keys[0]
+        primary_key_values = ", ".join(map(str, logs_df[primary_keys[0]].tolist()))
     else:
         logger.info(f"Primary key múltipla: {primary_keys}")
         # Transforma [(pk1, pk2), (pk1, pk2)] em ['pk1|pk2', 'pk1|pk2']
@@ -410,6 +412,7 @@ def log_delete(
         primary_key_values = ", ".join([f"'{v}'" for v in pks_values])
         pk_expression = "CONCAT_WS('|', " + ", ".join(primary_keys) + ")"
 
+    logger.info(f"{pks_values.size} registros com operação DELETE")
     delete_from_pk(
         postgres_cursor=postgres_cursor,
         schema_name="sankhya",
@@ -419,7 +422,8 @@ def log_delete(
     )
     postgres_conn.commit()
     logger.info("Dados deletados com sucesso")
-    return {"pks": primary_keys, "pks_values": pks_values}
+    # logger.info(pks_values.values)
+    return {"pks": primary_keys, "pks_values": primary_key_values}
 
 
 def update_by_logs_table(
@@ -439,14 +443,13 @@ def update_by_logs_table(
 
         # ========================== PASSO 1 ==========================
         # =================== Deletando os Deletados ==================
-        logger.info("Deletando os registros de DELETE")
         deleted_rows = log_delete(
             log_schema_name,
             table_name,
             sqlserver_conn,
             postgres_conn,
         )
-        if not deleted_rows["pks_values"].empty:
+        if len(deleted_rows["pks_values"]) > 0:
             update_values_by_pk(
                 sqlserver_conn=sqlserver_conn,
                 schema_name=log_schema_name,
@@ -458,6 +461,7 @@ def update_by_logs_table(
 
         # ========================== PASSO 2 ==========================
         # ================== Update dos mais recentes ==================
+        logger.info("Iniciando segundo passo")
         updated_rows = log_update(
             sqlserver_conn=sqlserver_conn,
             log_schema_name=log_schema_name,

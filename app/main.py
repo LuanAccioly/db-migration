@@ -4,6 +4,14 @@ from db.migrate import update_by_logs_table
 from db.sqlserver.config import get_connection
 from db.postgres.config import get_postgres_connection, get_postgres_engine_string_url
 import logging
+import warnings
+
+# Ignorar warnings específicos do pandas
+warnings.filterwarnings(
+    "ignore",
+    message="pandas only supports SQLAlchemy connectable",
+    category=UserWarning,
+)
 
 # Configurando o logger
 logging.basicConfig(level=logging.INFO)
@@ -63,7 +71,7 @@ def main():
                 postgres_conn=postgres_conn,
                 postgres_engine=postgres_engine,
             )
-            logger.info("Atualização concluída com sucesso.")
+            logger.info("Atualização de DhIntegracaoDw concluída com sucesso.")
         else:
             logger.error(f"Operação '{args.operation}' não suportada.")
 
