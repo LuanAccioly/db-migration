@@ -394,12 +394,17 @@ def log_delete(
     default_columns = ["SyncTableId", "TipoOperacao", "DhOperacao", "DhIntegracao"]
     primary_keys = [col for col in logs_df.columns if col not in default_columns]
     pks_values = logs_df[primary_keys].astype(str).agg("|".join, axis=1)
+
     if len(primary_keys) == 1:
+        logger.info(f"Primary key única: {primary_keys[0]}")
         primary_key_values = ", ".join(map(str, logs_df[primary_keys[0]].tolist()))
         pk_expression = primary_keys[0]
     else:
-        # Concatenar as chaves primárias com '|'
+        logger.info(f"Primary key múltipla: {primary_keys}")
+        # Transforma [(pk1, pk2), (pk1, pk2)] em ['pk1|pk2', 'pk1|pk2']
         pks_values = logs_df[primary_keys].astype(str).agg("|".join, axis=1)
+
+        # Transforma ['pk1|pk2', 'pk1|pk2'] em "'pk1|pk2', 'pk1|pk2'"
         primary_key_values = ", ".join([f"'{v}'" for v in pks_values])
         pk_expression = "CONCAT_WS('|', " + ", ".join(primary_keys) + ")"
 
@@ -432,6 +437,7 @@ def update_by_logs_table(
 
         # ========================== PASSO 1 ==========================
         # =================== Deletando os Deletados ==================
+        logger.info("Deletando os registros de DELETE")
         deleted_rows = log_delete(
             log_schema_name,
             table_name,
