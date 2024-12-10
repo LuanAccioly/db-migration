@@ -65,9 +65,9 @@ def delete_from_pk(
     if not primary_keys:
         raise ValueError("É necessário especificar ao menos uma chave primária.")
 
-    # if source_values == "":
-    #     logger.info("Nenhum valor para deletar.")
-    #     return
+    if source_values == "":
+        logger.info("Nenhum valor para deletar.")
+        return
 
     # Converte ["11706590", "11706719"] -> ('11706590', '11706719')
     # formatted_values = ", ".join(f"'{v}'" for v in source_values)

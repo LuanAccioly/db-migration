@@ -58,33 +58,6 @@ def compare_columns_between_databases(sqlserver_conn, postgres_conn, table_name)
         raise
 
 
-def migrate_data(sql_conn, postgres_engine, table_name, date_filter, date_column_name):
-    query = f"SELECT * FROM sankhya.{table_name} WHERE {date_column_name} >= '{date_filter}'"
-    df = pd.read_sql(query, sql_conn)
-    df.columns = df.columns.str.lower()
-    logger.info(f"Foram encontrados: {len(df)} registros")
-
-    with postgres_engine.connect() as postgres_conn:
-        transaction = postgres_conn.begin()
-        try:
-            df.to_sql(
-                table_name,
-                postgres_conn,
-                schema="sankhya",
-                if_exists="append",
-                index=False,
-            )
-            transaction.commit()
-            logger.info(
-                f"Dados da tabela '{table_name}' inseridos com sucesso na tabela 'sankhya.{table_name}'."
-            )
-        except Exception as e:
-            logger.error(f"Erro ao inserir dados no PostgreSQL: {e}")
-        finally:
-            del df
-            gc.collect()
-
-
 def update_recent_data(
     sql_conn,
     postgres_conn,
@@ -240,51 +213,6 @@ def update_full_table(
             postgres_conn_url.close()
 
 
-def migrate_multiple_tables():
-    try:
-        with open("app/databases.json", "r") as file:
-            tables_to_migrate = json.load(file)
-        # Configurar conexões
-        sqlserver_connection = get_connection()
-        postgres_connection = get_postgres_connection()
-        postgres_engine_url = get_postgres_engine_string_url()
-
-        # ADICIONAR WITH AQUI
-
-        # Iterar sobre a lista de tabelas e processar cada uma
-        for table in tables_to_migrate:
-            table_name = table["table_name"]
-            date_column = table["date_column"]
-            date_filter = table["date_filter"]
-
-            logger.info(f"Iniciando migração para a tabela: {table_name}")
-
-            # Comparar colunas entre SQL Server e PostgreSQL
-            if compare_columns_between_databases(
-                sqlserver_conn=sqlserver_connection,
-                postgres_conn=postgres_connection,
-                table_name=table_name,
-            ):
-                migrate_data(
-                    sqlserver_connection,
-                    postgres_engine_url,
-                    table_name,
-                    date_filter,
-                    date_column,
-                )
-            else:
-                logger.warning(
-                    f"Tabela {table_name} não foi migrada devido a diferenças de colunas."
-                )
-
-    except Exception as e:
-        logger.error(f"Erro durante o processo de migração: {e}")
-    finally:
-        sqlserver_connection.close()
-        # postgres_engine_url.close()
-        postgres_connection.close()
-
-
 def check_and_update_recent_date(table_name, days, date_column):
     try:
 
@@ -354,76 +282,101 @@ def full_load(table_name):
         raise
 
 
-def get_last_modifies(
+def log_update(
     log_schema_name, table_name, sqlserver_conn, postgres_conn, postgres_engine
 ):
+
+    # Consulta inicial para identificar colunas e registros sem DhIntegracao
     pks_query = f"""
-    SELECT TOP 1 * FROM LogSincronizacaoDW.{log_schema_name}.{table_name}
+    SELECT TOP 1 * 
+    FROM LogSincronizacaoDW.{log_schema_name}.{table_name}
     WHERE DhIntegracao IS NULL
     """
-    logger.info(pks_query)
     logs_df = pd.read_sql(pks_query, sqlserver_conn)
+
+    if logs_df.empty:
+        logger.warning(
+            f"Não foi encontrado nenhum registro pendente de integração em LogSincronizacaoDW.{log_schema_name}.{table_name}"
+        )
+        return {"pks": "", "pks_values": [""], "last_sync_table_id": None}
+
+    # Identificação de chaves primárias
     default_columns = ["SyncTableId", "TipoOperacao", "DhOperacao", "DhIntegracao"]
     primary_keys = [col for col in logs_df.columns if col not in default_columns]
-    logger.info(primary_keys)
 
+    # Consulta para obter valores únicos e último SyncTableId
     query = f"""
-    SELECT {', '.join(primary_keys)}, max(DhOperacao) as DhOperacao
+    SELECT {', '.join(primary_keys)}, MAX(DhOperacao) AS DhOperacao, SyncTableId
     FROM LogSincronizacaoDW.{log_schema_name}.{table_name}
-    GROUP BY {', '.join(primary_keys)} 
+    GROUP BY {', '.join(primary_keys)}, SyncTableId
     """
     pk_values_df = pd.read_sql(query, sqlserver_conn)
-    pk_values_df = pk_values_df.drop("DhOperacao", axis=1)
 
     if pk_values_df.empty:
         logger.warning("pk_values_df está vazio, nenhuma consulta gerada.")
-        return  # Ou outra ação de tratamento adequado
+        return {"pks": "", "pks_values": []}
 
-    # Caso haja mais de uma chave primária, concatenar seus valores com '|'
+    last_sync_table_id = pk_values_df["SyncTableId"].max()
+    logger.info(f"Último SyncTableId: {last_sync_table_id}")
+
+    # Remoção da coluna DhOperacao para o processamento
+    pk_values_df = pk_values_df.drop("DhOperacao", axis=1)
+
+    # Geração da expressão para as chaves primárias
     if len(primary_keys) == 1:
-        primary_key_values = ", ".join(map(str, pk_values_df[primary_keys[0]].tolist()))
         pk_expression = primary_keys[0]
+        primary_key_values = ", ".join(map(str, pk_values_df[primary_keys[0]].tolist()))
     else:
-        # Concatenar as chaves primárias com '|'
+        pk_expression = "CONCAT_WS('|', " + ", ".join(primary_keys) + ")"
         pks_values = pk_values_df[primary_keys].astype(str).agg("|".join, axis=1)
         primary_key_values = ", ".join([f"'{v}'" for v in pks_values])
-        pk_expression = "CONCAT_WS('|', " + ", ".join(primary_keys) + ")"
 
-    # Gerando a consulta SQL com a expressão correta para as chaves primárias
+    # Consulta para buscar os valores a serem inseridos no PostgreSQL
     get_values_query = f"""
-    SELECT * FROM sankhya_prod.{log_schema_name}.{table_name}
+    SELECT * 
+    FROM sankhya_prod.{log_schema_name}.{table_name}
     WHERE {pk_expression} IN ({primary_key_values})
     """
-
     values_to_insert = pd.read_sql(get_values_query, sqlserver_conn)
-    postgres_cursor = postgres_conn.cursor()
-    # print(primary_key_values)
-    # print(pk_expression)
-    delete_from_pk(
-        postgres_cursor=postgres_cursor,
-        schema_name="sankhya",
-        table_name=table_name,
-        primary_keys=pk_expression,
-        source_values=primary_key_values,
-    )
 
+    # Exclusão dos registros existentes no PostgreSQL
+    with postgres_conn.cursor() as postgres_cursor:
+        delete_from_pk(
+            postgres_cursor=postgres_cursor,
+            schema_name="sankhya",
+            table_name=table_name,
+            primary_keys=pk_expression,
+            source_values=primary_key_values,
+        )
+        postgres_conn.commit()
+
+    # Inserção dos novos valores no PostgreSQL
     with postgres_engine.connect() as postgres_url_conn:
         transaction = postgres_url_conn.begin()
-        values_to_insert.columns = values_to_insert.columns.str.lower()
-        values_to_insert.to_sql(
-            table_name,
-            postgres_url_conn,
-            schema="sankhya",
-            if_exists="append",
-            index=False,
-        )
-        transaction.commit()
-        logger.info("Dados inseridos com sucesso")
+        try:
+            values_to_insert.columns = values_to_insert.columns.str.lower()
+            values_to_insert.to_sql(
+                table_name,
+                postgres_url_conn,
+                schema="sankhya",
+                if_exists="append",
+                index=False,
+            )
+            transaction.commit()
+            logger.info("Dados inseridos com sucesso.")
+        except Exception as e:
+            transaction.rollback()
+            logger.error(f"Erro ao inserir os dados: {e}")
+            raise
 
-    # VERIFICAR DATA MAXIMA NA HORA DO UPDATE NA TABELA DE LOGS PRA NAO DAR UPDATE NO REGISTRO ERRADO
+    return {
+        "pks": primary_keys,
+        "pks_values": primary_key_values,
+        "last_sync_table_id": last_sync_table_id,
+    }
 
 
-def delete_rows(
+def log_delete(
     log_schema_name,
     table_name,
     sqlserver_conn,
@@ -433,7 +386,7 @@ def delete_rows(
         SELECT *
         FROM LogSincronizacaoDW.{log_schema_name}.{table_name}
         WHERE DhIntegracao IS NULL
-        AND TipoOperacao = 'I'
+        AND TipoOperacao = 'D'
     """
     logs_df = pd.read_sql(query, sqlserver_conn)
     postgres_cursor = postgres_conn.cursor()
@@ -457,34 +410,65 @@ def delete_rows(
         primary_keys=pk_expression,
         source_values=primary_key_values,
     )
+    postgres_conn.commit()
+    logger.info("Dados deletados com sucesso")
     return {"pks": primary_keys, "pks_values": pks_values}
 
 
 def update_by_logs_table(
     log_schema_name, table_name, sqlserver_conn, postgres_conn, postgres_engine
 ):
-    # ========================== PASSO 1 ==========================
-    # =================== Deletando os Deletados ===================
-    deleted_rows = delete_rows(
-        log_schema_name,
-        table_name,
-        sqlserver_conn,
-        postgres_conn,
-    )
-    if not deleted_rows["pks_values"].empty:
+    try:
+        # ================== Verificação de Colunas ==================
+        if not compare_columns_between_databases(
+            sqlserver_conn=sqlserver_conn,
+            postgres_conn=postgres_conn,
+            table_name=table_name,
+        ):
+            logger.warning(
+                f"Tabela {table_name} não foi processada devido a diferenças de colunas."
+            )
+            return
+
+        # ========================== PASSO 1 ==========================
+        # =================== Deletando os Deletados ==================
+        deleted_rows = log_delete(
+            log_schema_name,
+            table_name,
+            sqlserver_conn,
+            postgres_conn,
+        )
+        if not deleted_rows["pks_values"].empty:
+            update_values_by_pk(
+                sqlserver_conn=sqlserver_conn,
+                schema_name=log_schema_name,
+                table_name=table_name,
+                primary_keys=deleted_rows["pks"],
+                source_values=deleted_rows["pks_values"],
+                operation_type="delete",
+            )
+
+        # ========================== PASSO 2 ==========================
+        # ================== Update dos mais recentes ==================
+        updated_rows = log_update(
+            sqlserver_conn=sqlserver_conn,
+            log_schema_name=log_schema_name,
+            table_name=table_name,
+            postgres_conn=postgres_conn,
+            postgres_engine=postgres_engine,
+        )
+        if updated_rows["pks_values"] == [""]:
+            return
+
         update_values_by_pk(
             sqlserver_conn=sqlserver_conn,
             schema_name=log_schema_name,
             table_name=table_name,
-            primary_keys=deleted_rows["pks"],
-            source_values=deleted_rows["pks_values"],
+            primary_keys=updated_rows["pks"],
+            source_values=updated_rows["pks_values"],
+            operation_type="update",
+            last_SyncTableId=updated_rows["last_sync_table_id"],
         )
-    # ========================== PASSO 2 ==========================
-    # ================== Update dos mais recentes ==================
-    get_last_modifies(
-        sqlserver_conn=sqlserver_conn,
-        log_schema_name=log_schema_name,
-        table_name=table_name,
-        postgres_conn=postgres_conn,
-        postgres_engine=postgres_engine,
-    )
+    except Exception as e:
+        logger.error(f"Erro durante a execução de update_by_logs_table: {e}")
+        raise
