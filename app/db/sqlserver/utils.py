@@ -107,37 +107,58 @@ def update_values_by_pk(
         raise ValueError("É necessário especificar ao menos uma chave primária.")
 
     if len(source_values) <= 0:
-        logger.info("Nenhum valor para fazer update de DhIntegração.")
+        logger.info("Nenhum valor para fazer update de DhIntegracao.")
         return
 
-    # Converte ["11706590", "11706719"] -> ('11706590', '11706719')
-    # formatted_values = ", ".join(f"'{v}'" for v in source_values)
-
-    # Monta a expressão para a chave primária
+    # Construção da expressão para a query
     if len(primary_keys) == 1:
-        logger.debug("Montando expressão de chave primaria")
+        # Chave primária única
         pk_expression = primary_keys[0]
-        logger.debug("Expressão de chave primaria montada")
+        formatted_values = ", ".join(f"'{v}'" for v in source_values)
+        condition = f"{pk_expression} IN ({formatted_values})"
     else:
-        logger.debug("Montando expressão de parametros de pks")
-        formatted_pks = ", ".join(f"{v}" for v in primary_keys)
-        pk_expression = f"CONCAT_WS('|', {formatted_pks})"
-        logger.debug("Expressão de parametros de pks montada")
+        # Múltiplas chaves primárias
+        pk_columns = ", ".join(primary_keys)
+        value_rows = ", ".join(
+            f"({', '.join(map(lambda v: f'{repr(v)}', values))})"
+            for values in source_values
+        )
+        temp_table_alias = " AND ".join(
+            [f"temp.{pk} = {table_name}.{pk}" for pk in primary_keys]
+        )
+        condition = f"""
+        EXISTS (
+            SELECT 1
+            FROM (VALUES {value_rows}) AS temp ({pk_columns})
+            WHERE {temp_table_alias}
+        )
+        """
 
+    # Construção da query para DELETE ou UPDATE
     if operation_type.lower() == "delete":
         update_DhIntegracao_query = f"""
         UPDATE LogSincronizacaoDW.{schema_name}.{table_name}
         SET DhIntegracao = GETDATE()
-        WHERE {pk_expression} IN ({source_values});
+        WHERE {condition};
         """
     elif operation_type.lower() == "update":
+        if not last_SyncTableId:
+            raise ValueError(
+                "O parâmetro last_SyncTableId é obrigatório para operação de update."
+            )
         update_DhIntegracao_query = f"""
         UPDATE LogSincronizacaoDW.{schema_name}.{table_name}
         SET DhIntegracao = GETDATE()
-        WHERE {pk_expression} IN ({source_values})
+        WHERE {condition}
         AND SyncTableId <= {last_SyncTableId};
         """
 
-    logger.debug(update_DhIntegracao_query)
-    sqlserver_conn.execute(update_DhIntegracao_query)
-    sqlserver_conn.commit()
+    # logger.info(update_DhIntegracao_query)
+
+    try:
+        sqlserver_conn.execute(update_DhIntegracao_query)
+        sqlserver_conn.commit()
+        logger.info("DhIntegracao atualizado com sucesso.")
+    except Exception as e:
+        logger.error(f"Erro ao atualizar DhIntegracao: {e}")
+        raise

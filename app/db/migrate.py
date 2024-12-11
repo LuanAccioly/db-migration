@@ -320,24 +320,39 @@ def log_update(
     last_sync_table_id = pk_values_df["SyncTableId"].max()
     logger.info(f"Último SyncTableId: {last_sync_table_id}")
 
+    # ============ Criação de consulta SELECT no source ============
+
     # Remoção da coluna DhOperacao para o processamento
     pk_values_df = pk_values_df.drop("DhOperacao", axis=1)
+    # Criação da lista de colunas para SELECT DISTINCT na subquery
+    distinct_pk_columns = ", ".join(primary_keys)
 
-    # Geração da expressão para as chaves primárias
-    if len(primary_keys) == 1:
-        pk_expression = primary_keys[0]
-        primary_key_values = ", ".join(map(str, pk_values_df[primary_keys[0]].tolist()))
-    else:
-        pk_expression = "CONCAT_WS('|', " + ", ".join(primary_keys) + ")"
-        pks_values = pk_values_df[primary_keys].astype(str).agg("|".join, axis=1)
-        primary_key_values = ", ".join([f"'{v}'" for v in pks_values])
+    # Criação das condições de JOIN com base nas chaves primárias
+    join_conditions = "\n        AND ".join(
+        [f"source.{pk} = LOG.{pk}" for pk in primary_keys]
+    )
 
-    # Consulta para buscar os valores a serem inseridos no PostgreSQL
+    # Montagem da query final
     get_values_query = f"""
-    SELECT * 
-    FROM sankhya_prod.{log_schema_name}.{table_name}
-    WHERE {pk_expression} IN ({primary_key_values})
+    SELECT source.*
+    FROM SANKHYA_PROD.{log_schema_name}.{table_name} source
+    JOIN (
+        SELECT DISTINCT {distinct_pk_columns}
+        FROM LogSincronizacaoDW.{log_schema_name}.{table_name}
+        WHERE DhIntegracao IS NULL
+          AND SyncTableId <= {last_sync_table_id}
+    ) LOG
+        ON {join_conditions}
     """
+    # ============ Criação de consulta SELECT no source ============
+    # Atualização no fluxo principal:
+    if len(primary_keys) == 1:
+        # Para chave primária única
+        source_values = pk_values_df[primary_keys[0]].tolist()
+    else:
+        # Para múltiplas chaves primárias
+        source_values = pk_values_df[primary_keys].values.tolist()
+
     values_to_insert = pd.read_sql(get_values_query, sqlserver_conn)
 
     # Exclusão dos registros existentes no PostgreSQL
@@ -346,8 +361,8 @@ def log_update(
             postgres_cursor=postgres_cursor,
             schema_name="sankhya",
             table_name=table_name,
-            primary_keys=pk_expression,
-            source_values=primary_key_values,
+            primary_keys=primary_keys,
+            source_values=source_values,
         )
         postgres_conn.commit()
 
@@ -375,7 +390,7 @@ def log_update(
 
     return {
         "pks": primary_keys,
-        "pks_values": primary_key_values,
+        "pks_values": source_values,
         "last_sync_table_id": last_sync_table_id,
     }
 
@@ -393,37 +408,34 @@ def log_delete(
         AND TipoOperacao = 'D'
     """
     logs_df = pd.read_sql(query, sqlserver_conn)
-    postgres_cursor = postgres_conn.cursor()
 
     default_columns = ["SyncTableId", "TipoOperacao", "DhOperacao", "DhIntegracao"]
     primary_keys = [col for col in logs_df.columns if col not in default_columns]
-    pks_values = logs_df[primary_keys].astype(str).agg("|".join, axis=1)
 
     if len(primary_keys) == 1:
+        # Caso de chave primária única
         logger.info(f"Primary key única: {primary_keys[0]}")
         pk_expression = primary_keys[0]
-        primary_key_values = ", ".join(map(str, logs_df[primary_keys[0]].tolist()))
+        source_values = logs_df[primary_keys[0]].tolist()
     else:
+        # Caso de múltiplas chaves primárias
         logger.info(f"Primary key múltipla: {primary_keys}")
-        # Transforma [(pk1, pk2), (pk1, pk2)] em ['pk1|pk2', 'pk1|pk2']
-        pks_values = logs_df[primary_keys].astype(str).agg("|".join, axis=1)
+        source_values = logs_df[primary_keys].values.tolist()
 
-        # Transforma ['pk1|pk2', 'pk1|pk2'] em "'pk1|pk2', 'pk1|pk2'"
-        primary_key_values = ", ".join([f"'{v}'" for v in pks_values])
-        pk_expression = "CONCAT_WS('|', " + ", ".join(primary_keys) + ")"
+    logger.info(f"{len(source_values)} registros com operação DELETE")
 
-    logger.info(f"{pks_values.size} registros com operação DELETE")
-    delete_from_pk(
-        postgres_cursor=postgres_cursor,
-        schema_name="sankhya",
-        table_name=table_name,
-        primary_keys=pk_expression,
-        source_values=primary_key_values,
-    )
-    postgres_conn.commit()
+    with postgres_conn.cursor() as postgres_cursor:
+        delete_from_pk(
+            postgres_cursor=postgres_cursor,
+            schema_name="sankhya",
+            table_name=table_name,
+            primary_keys=primary_keys,
+            source_values=source_values,
+        )
+        postgres_conn.commit()
+
     logger.info("Dados deletados com sucesso")
-    # logger.info(pks_values.values)
-    return {"pks": primary_keys, "pks_values": primary_key_values}
+    return {"pks": primary_keys, "pks_values": source_values}
 
 
 def update_by_logs_table(

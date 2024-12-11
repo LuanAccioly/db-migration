@@ -65,15 +65,39 @@ def delete_from_pk(
     if not primary_keys:
         raise ValueError("É necessário especificar ao menos uma chave primária.")
 
-    if source_values == "":
+    if not source_values:
         return
 
-    delete_query = f"""
-    DELETE FROM {schema_name}.{table_name}
-    WHERE {primary_keys} IN ({source_values});
-    """
+    if len(primary_keys) == 1:
+        # Caso de chave primária única
+        pk_expression = primary_keys[0]
+        values_list = ", ".join(map(str, source_values))
+        delete_query = f"""
+        DELETE FROM {schema_name}.{table_name}
+        WHERE {pk_expression} IN ({values_list});
+        """
+    else:
+        # Caso de múltiplas chaves primárias
+        column_names = ", ".join(primary_keys)
+        value_rows = ", ".join(
+            f"({', '.join(map(repr, row))})" for row in source_values
+        )
+        temp_alias = ", ".join([f"pk{i+1}" for i in range(len(primary_keys))])
+        join_conditions = " AND ".join(
+            [f"temp.pk{i+1} = {table_name}.{pk}" for i, pk in enumerate(primary_keys)]
+        )
+
+        delete_query = f"""
+        DELETE FROM {schema_name}.{table_name}
+        WHERE EXISTS (
+            SELECT 1 
+            FROM (VALUES {value_rows}) AS temp ({temp_alias})
+            WHERE {join_conditions}
+        );
+        """
+
     try:
-        postgres_cursor.execute(delete_query, source_values)
+        postgres_cursor.execute(delete_query)
         logger.info(
             f"Dados deletados com sucesso no PostgreSQL para a tabela '{schema_name}.{table_name}'."
         )
